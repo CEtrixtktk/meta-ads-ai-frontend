@@ -6,7 +6,12 @@
  */
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 
-const API_BASE_URL = "http://localhost:8000/api";
+// La URL del backend se lee de una variable de entorno de Vite:
+// - En desarrollo (.env.development): apunta a localhost.
+// - En producción (.env.production o variable de Vercel): apunta a Railway.
+// El prefijo VITE_ es obligatorio para que Vite exponga la variable al navegador.
+// El fallback a localhost protege si la variable no estuviera definida.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
 const client = axios.create({ baseURL: API_BASE_URL });
 
