@@ -3,33 +3,37 @@
  * Vista Dashboard: muestra las métricas de campañas del usuario.
  * Maneja los tres estados de toda pantalla con datos: cargando, error, y listo.
  * La lógica de datos vive en la capa API; esta vista orquesta y presenta.
+ *
+ * Nota sobre el idioma: los textos de la interfaz están en inglés porque el mercado
+ * objetivo del producto es angloparlante, y el análisis generado también lo está.
+ * Mantener un solo idioma de cara al usuario evita una experiencia inconsistente.
  */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { getInsights, type Campaign } from '@/api/campaigns'
-import { analyzeCampaigns } from '@/api/campaigns'
+import { getInsights, analyzeCampaigns, type Campaign } from '@/api/campaigns'
 import { marked } from 'marked'
 
 const auth = useAuthStore()
 const router = useRouter()
 
-// --- Estado de la vista ---
-  //1st Wave fo Design const
-const campaigns = ref<Campaign[]>([])   // los datos
+// --- Estado de las métricas ---
+const campaigns = ref<Campaign[]>([])   // los datos de las campañas
 const accountName = ref('')             // nombre de la cuenta, para el encabezado
-const loading = ref(true)               // ¿estamos cargando?
-const errorMessage = ref('')            // mensaje si algo falla
-const datePreset = ref('maximum')       // periodo; 'maximum' porque sabemos que trae datos
-  //2nd Wave fo Design const
-const analysisHtml = ref('')        // el análisis ya convertido a HTML
-const analyzing = ref(false)        // ¿Claude está procesando?
-const analysisError = ref('')       // error propio del análisis
+const loading = ref(true)               // ¿se están cargando las métricas?
+const errorMessage = ref('')            // mensaje si la carga falla
+const datePreset = ref('maximum')       // ventana temporal consultada
 
-  //2nd Wave fo Design functions
+// --- Estado del análisis con IA ---
+// Se mantiene separado del estado de las métricas a propósito: la generación del
+// análisis tarda bastante más que la consulta de datos, así que la tabla se muestra
+// de inmediato mientras el análisis se genera en segundo plano.
+const analysisHtml = ref('')            // el análisis ya convertido de Markdown a HTML
+const analyzing = ref(false)            // ¿el modelo está procesando?
+const analysisError = ref('')           // error propio del análisis
 
 /**
- * Pide el análisis a Claude y lo convierte de Markdown a HTML para mostrarlo.
+ * Solicita el análisis al backend y lo convierte de Markdown a HTML para mostrarlo.
  */
 async function runAnalysis() {
   analyzing.value = true
@@ -39,14 +43,14 @@ async function runAnalysis() {
     const data = await analyzeCampaigns(datePreset.value)
     analysisHtml.value = await marked(data.analysis)
   } catch {
-    analysisError.value = 'No se pudo generar el análisis. Intenta de nuevo.'
+    analysisError.value = 'Could not generate the analysis. Please try again.'
   } finally {
     analyzing.value = false
   }
 }
-// 1st Wave of Design functions
+
 /**
- * Pide los insights al backend y actualiza el estado según el resultado.
+ * Solicita las métricas al backend y actualiza el estado según el resultado.
  */
 async function loadInsights() {
   loading.value = true
@@ -56,20 +60,20 @@ async function loadInsights() {
     campaigns.value = data.campaigns
     accountName.value = data.account_name || data.account_id
   } catch (err: any) {
-    // Distinguimos el caso "no tienes cuenta conectada" (404) de otros errores,
-    // para dar un mensaje útil en vez de uno genérico.
+    // Se distingue el caso "no hay cuenta conectada" (404) de otros errores,
+    // para dar un mensaje accionable en lugar de uno genérico.
     if (err.response?.status === 404) {
-      errorMessage.value = 'No tienes una cuenta de Meta conectada.'
+      errorMessage.value = 'No Meta ad account connected.'
     } else {
-      errorMessage.value = 'No se pudieron cargar las campañas. Intenta de nuevo.'
+      errorMessage.value = 'Could not load campaigns. Please try again.'
     }
   } finally {
     loading.value = false
   }
 }
 
-// onMounted: se ejecuta cuando la vista aparece en pantalla. Es el momento
-// natural para cargar los datos iniciales.
+// onMounted se ejecuta cuando la vista aparece en pantalla: es el momento natural
+// para cargar los datos iniciales.
 onMounted(loadInsights)
 
 function handleLogout() {
@@ -77,37 +81,40 @@ function handleLogout() {
   router.push('/login')
 }
 
-// Formatea un número como moneda (para la columna de gasto).
+/**
+ * Formatea un número como moneda estadounidense.
+ * Se usa el locale 'en-US' para que el formato coincida con el idioma de la interfaz.
+ */
 function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('es', { style: 'currency', currency: 'USD' }).format(value)
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 }
 
-// Formatea porcentajes (para CTR).
+/** Formatea un valor como porcentaje con dos decimales. */
 function formatPercent(value: number): string {
   return `${value.toFixed(2)}%`
-
-
 }
 
-
-
+/** Formatea un número entero con separadores de miles. */
+function formatNumber(value: number): string {
+  return value.toLocaleString('en-US')
+}
 </script>
 
 <template>
   <div class="dashboard">
-    <!-- Encabezado con título y logout -->
+    <!-- Encabezado con título de la cuenta y cierre de sesión -->
     <header class="dashboard-header">
       <div>
-        <h1>Campañas</h1>
-        <p v-if="accountName" class="account-name">{{ accountName }}</p>
+        <h1>Campaigns</h1>
+        
       </div>
-      <Button label="Cerrar sesión" severity="secondary" @click="handleLogout" />
+      <Button label="Sign out" severity="secondary" @click="handleLogout" />
     </header>
 
     <!-- ESTADO 1: cargando -->
     <div v-if="loading" class="state-center">
       <ProgressSpinner />
-      <p>Cargando campañas...</p>
+      <p>Loading campaigns...</p>
     </div>
 
     <!-- ESTADO 2: error -->
@@ -115,31 +122,31 @@ function formatPercent(value: number): string {
       {{ errorMessage }}
     </Message>
 
-    <!-- ESTADO 3: datos listos -->
+    <!-- ESTADO 3: datos disponibles -->
     <DataTable
       v-else
       :value="campaigns"
       stripedRows
       responsiveLayout="scroll"
     >
-      <!-- Cada Column define qué campo muestra y cómo. 'sortable' permite ordenar. -->
-      <Column field="campaign_name" header="Campaña" sortable />
+      <!-- Cada Column define qué campo muestra y cómo. 'sortable' habilita el orden. -->
+      <Column field="campaign_name" header="Campaign" sortable />
 
-      <!-- Columnas con formato personalizado usan #body para dar formato al valor. -->
-      <Column field="spend" header="Gasto" sortable>
+      <!-- Las columnas con formato personalizado usan #body para transformar el valor. -->
+      <Column field="spend" header="Spend" sortable>
         <template #body="{ data }">{{ formatCurrency(data.spend) }}</template>
       </Column>
 
-      <Column field="impressions" header="Impresiones" sortable>
-        <template #body="{ data }">{{ data.impressions.toLocaleString() }}</template>
+      <Column field="impressions" header="Impressions" sortable>
+        <template #body="{ data }">{{ formatNumber(data.impressions) }}</template>
       </Column>
 
-      <Column field="clicks" header="Clics" sortable>
-        <template #body="{ data }">{{ data.clicks.toLocaleString() }}</template>
+      <Column field="clicks" header="Clicks" sortable>
+        <template #body="{ data }">{{ formatNumber(data.clicks) }}</template>
       </Column>
 
-      <Column field="reach" header="Alcance" sortable>
-        <template #body="{ data }">{{ data.reach.toLocaleString() }}</template>
+      <Column field="reach" header="Reach" sortable>
+        <template #body="{ data }">{{ formatNumber(data.reach) }}</template>
       </Column>
 
       <Column field="ctr" header="CTR" sortable>
@@ -150,24 +157,26 @@ function formatPercent(value: number): string {
         <template #body="{ data }">{{ formatCurrency(data.cpc) }}</template>
       </Column>
     </DataTable>
-<!-- Sección de análisis con IA. Solo visible cuando ya hay campañas cargadas. -->
+
+    <!-- Sección de análisis con IA. Solo visible cuando hay campañas cargadas:
+         sin datos no hay nada que analizar. -->
     <div v-if="!loading && !errorMessage && campaigns.length > 0" class="analysis-section">
       <Button
-        label="Analizar con IA"
+        label="Analyze with AI"
         icon="pi pi-sparkles"
         :loading="analyzing"
         @click="runAnalysis"
       />
 
-      <!-- Error propio del análisis -->
+      <!-- Error propio del análisis, independiente del de las métricas -->
       <Message v-if="analysisError" severity="error" :closable="false" class="analysis-msg">
         {{ analysisError }}
       </Message>
 
-      <!-- El resultado del análisis, renderizado como HTML formateado.
-           v-html inserta el HTML que generó marked. Es seguro aquí porque el
-           contenido viene de nuestro backend/Claude, no de entrada de usuarios. -->
-      <Panel v-if="analysisHtml" header="Análisis de tus campañas" class="analysis-panel">
+      <!-- Resultado del análisis, renderizado como HTML formateado.
+           v-html inserta el HTML generado por marked. Es aceptable aquí porque el
+           contenido proviene del propio backend, no de entrada de usuarios. -->
+      <Panel v-if="analysisHtml" header="Campaign Analysis" class="analysis-panel">
         <div class="analysis-content" v-html="analysisHtml"></div>
       </Panel>
     </div>
@@ -206,8 +215,8 @@ function formatPercent(value: number): string {
 .analysis-panel {
   margin-top: 1.5rem;
 }
-/* Damos aire al contenido del análisis para que se lea cómodo.
-   Como viene de v-html, estos estilos aplican a sus elementos internos. */
+/* Espaciado del contenido del análisis para que resulte cómodo de leer.
+   Al venir de v-html, se requiere :deep() para alcanzar sus elementos internos. */
 .analysis-content {
   line-height: 1.7;
 }
